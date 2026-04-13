@@ -314,6 +314,7 @@ export default function SurveyFormatter() {
   const [error,        setError]        = useState("");
   const [processing,   setProcessing]   = useState(false);
   const [generating,   setGenerating]   = useState(false);
+  const [pdfProgress,  setPdfProgress]  = useState(null); // null = idle, 0–100 = building
 
   const [includeCover, setIncludeCover] = useState(false);
   const [intro,        setIntro]        = useState({
@@ -334,9 +335,79 @@ export default function SurveyFormatter() {
     if (step === "view") window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
 
-  /* ── PDF: use window.print() with a print stylesheet ── */
+  /* ── PDF: build iframe in batches so the browser doesn't choke ── */
   const handlePrint = () => {
-    window.print();
+    const area = printAreaRef.current;
+    if (!area || pdfProgress !== null) return;
+
+    /* Collect the individual respondent card elements */
+    const cards = Array.from(area.children);
+    const BATCH = 40;
+
+    setPdfProgress(0);
+
+    const existing = document.getElementById("__print_frame__");
+    if (existing) existing.remove();
+
+    const frame = document.createElement("iframe");
+    frame.id = "__print_frame__";
+    frame.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;visibility:hidden;";
+    document.body.appendChild(frame);
+
+    const doc = frame.contentDocument || frame.contentWindow.document;
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head>
+      <meta charset="utf-8"/>
+      <title>${intro.title || "Survey Responses"}</title>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,100;0,300;0,400;0,700;1,300&display=swap"/>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Chivo', sans-serif; background: white; padding: 32px; color: #1E155D; }
+        @page { margin: 18mm 14mm; size: A4; }
+        @media print { body { padding: 0; } }
+      </style>
+    </head><body><div id="content"></div></body></html>`);
+    doc.close();
+
+    /* Also copy already-loaded font faces so we don't depend solely on the link */
+    try { for (const font of document.fonts) doc.fonts.add(font); } catch (_) {}
+
+    const container = doc.getElementById("content");
+    let i = 0;
+
+    const injectBatch = () => {
+      const end = Math.min(i + BATCH, cards.length);
+      for (; i < end; i++) {
+        container.insertAdjacentHTML("beforeend", cards[i].outerHTML);
+      }
+      const pct = Math.round((i / cards.length) * 100);
+      setPdfProgress(pct);
+
+      if (i < cards.length) {
+        /* Yield to the main thread so the progress bar updates */
+        setTimeout(injectBatch, 0);
+      } else {
+        /* All cards injected — wait for fonts + layout, then print */
+        const ready = doc.fonts ? doc.fonts.ready : Promise.resolve();
+        ready.then(() => {
+          setTimeout(() => {
+            frame.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:9999;background:white;";
+            frame.style.visibility = "visible";
+            frame.contentWindow.focus();
+            frame.contentWindow.print();
+            setPdfProgress(null);
+            /* Clean up after print dialog closes */
+            setTimeout(() => {
+              const f = document.getElementById("__print_frame__");
+              if (f) f.remove();
+            }, 1000);
+          }, 400);
+        });
+      }
+    };
+
+    /* Start first batch after iframe has initialised */
+    frame.onload = () => setTimeout(injectBatch, 100);
   };
 
   const processFile = useCallback((file) => {
@@ -447,14 +518,16 @@ export default function SurveyFormatter() {
             </div>
           </div>
           {step === "view" && (
-            <button onClick={handlePrint} style={{
-              marginLeft: "auto", background: B.cherry, color: B.white,
+            <button onClick={handlePrint} disabled={pdfProgress !== null} style={{
+              marginLeft: "auto", background: pdfProgress !== null ? B.mid : B.cherry, color: B.white,
               border: "none", borderRadius: 6, padding: "8px 20px",
-              cursor: "pointer", fontWeight: "700", fontSize: 12,
+              cursor: pdfProgress !== null ? "default" : "pointer",
+              fontWeight: "700", fontSize: 12,
               fontFamily: "'Chivo', sans-serif", letterSpacing: "0.06em",
-              textTransform: "uppercase",
+              textTransform: "uppercase", minWidth: 160,
+              transition: "background 0.2s",
             }}>
-              Download PDF
+              {pdfProgress !== null ? `Building PDF… ${pdfProgress}%` : "Download PDF"}
             </button>
           )}
         </div>
