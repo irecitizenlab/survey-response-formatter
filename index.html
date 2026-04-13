@@ -13,6 +13,19 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { font-family: 'Chivo', sans-serif; }
+
+      @page { margin: 18mm 14mm; size: A4; }
+      @media print {
+        /* Hide everything except the print area */
+        body > div > div > div > div:first-child, /* header */
+        [data-no-print] { display: none !important; }
+        body { background: white !important; }
+        div { page-break-inside: avoid; }
+        [data-print-area] {
+          padding: 0 !important;
+          margin: 0 !important;
+        }
+      }
     </style>
   </head>
   <body>

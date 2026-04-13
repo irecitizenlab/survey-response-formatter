@@ -334,52 +334,9 @@ export default function SurveyFormatter() {
     if (step === "view") window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
 
-  /* ── PDF: inject into a hidden iframe (works inside the artifact sandbox) ── */
+  /* ── PDF: use window.print() with a print stylesheet ── */
   const handlePrint = () => {
-    const area = printAreaRef.current;
-    if (!area) return;
-
-    const existing = document.getElementById("__print_frame__");
-    if (existing) existing.remove();
-
-    const frame = document.createElement("iframe");
-    frame.id = "__print_frame__";
-    frame.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:9999;background:white;";
-    document.body.appendChild(frame);
-
-    const doc = frame.contentDocument || frame.contentWindow.document;
-    doc.open();
-    doc.write(`<!DOCTYPE html><html><head>
-      <meta charset="utf-8"/>
-      <title>${intro.title || "Survey Responses"}</title>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,100;0,300;0,400;0,700;1,300&display=swap"/>
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Chivo', sans-serif; background: white; padding: 32px; color: #1E155D; }
-        @page { margin: 18mm 14mm; size: A4; }
-        @media print {
-          body { padding: 0; }
-          div { page-break-inside: avoid; }
-        }
-        @media screen {
-          body { padding: 40px; max-width: 860px; margin: 0 auto; }
-        }
-      </style>
-    </head><body>
-      ${area.innerHTML}
-      <div style="margin-top:32px;text-align:center;font-size:10px;color:#968BDD;letter-spacing:0.06em;text-transform:uppercase;">
-        Use your browser's File → Print (or Ctrl/Cmd+P) to save as PDF · Then close this preview
-      </div>
-    </body></html>`);
-    doc.close();
-
-    /* Wait for font to load, then print */
-    frame.onload = () => {
-      setTimeout(() => {
-        frame.contentWindow.focus();
-        frame.contentWindow.print();
-      }, 600);
-    };
+    window.print();
   };
 
   const processFile = useCallback((file) => {
@@ -467,7 +424,7 @@ export default function SurveyFormatter() {
       <div style={{ fontFamily: "'Chivo', sans-serif", minHeight: "100vh", background: B.l1 }}>
 
         {/* ── Header ── */}
-        <div style={{
+        <div data-no-print style={{
           background: B.dark, color: B.white,
           padding: "14px 32px", display: "flex", alignItems: "center", gap: 14,
         }}>
@@ -722,34 +679,36 @@ export default function SurveyFormatter() {
           {/* ══════════════════════════════════════════════════ */}
           {step === "view" && (
             <div>
-              <StepBar step={step} piiPath={piiPath} />
+              <div data-no-print>
+                <StepBar step={step} piiPath={piiPath} />
 
-              {/* Summary bar */}
-              <div style={{ background: B.white, border: `1px solid ${B.l2}`, borderRadius: 10, padding: "14px 20px", marginBottom: 24, display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
-                {[
-                  [data.length,           "responses",       B.dark],
-                  [visibleColumns.length, "fields retained", "#2d8a4e"],
-                  ...(piiFields.length > 0 ? [[piiFields.length, "PII removed", B.cherry]] : []),
-                ].map(([n, label, color]) => (
-                  <div key={label} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                    <span style={{ fontSize: 22, fontWeight: "700", color }}>{n}</span>
-                    <span style={{ color: B.l4, fontSize: 12 }}>{label}</span>
-                  </div>
-                ))}
-                <div style={{ flex: 1 }} />
-                {piiPath === "B" && btnGhost(() => setStep("confirm"), "← Edit PII")}
+                {/* Summary bar */}
+                <div style={{ background: B.white, border: `1px solid ${B.l2}`, borderRadius: 10, padding: "14px 20px", marginBottom: 24, display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+                  {[
+                    [data.length,           "responses",       B.dark],
+                    [visibleColumns.length, "fields retained", "#2d8a4e"],
+                    ...(piiFields.length > 0 ? [[piiFields.length, "PII removed", B.cherry]] : []),
+                  ].map(([n, label, color]) => (
+                    <div key={label} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                      <span style={{ fontSize: 22, fontWeight: "700", color }}>{n}</span>
+                      <span style={{ color: B.l4, fontSize: 12 }}>{label}</span>
+                    </div>
+                  ))}
+                  <div style={{ flex: 1 }} />
+                  {piiPath === "B" && btnGhost(() => setStep("confirm"), "← Edit PII")}
+                </div>
+
+                {/* Cover page editor */}
+                <IntroEditor
+                  intro={intro}
+                  setIntro={setIntro}
+                  includeCover={includeCover}
+                  setIncludeCover={setIncludeCover}
+                />
               </div>
 
-              {/* Cover page editor */}
-              <IntroEditor
-                intro={intro}
-                setIntro={setIntro}
-                includeCover={includeCover}
-                setIncludeCover={setIncludeCover}
-              />
-
               {/* ── PRINTABLE AREA ── */}
-              <div ref={printAreaRef}>
+              <div ref={printAreaRef} data-print-area>
                 {includeCover && <CoverPage intro={intro} />}
                 {data.map((row, i) => (
                   <ResponseCard key={i} row={row} index={i} visibleColumns={visibleColumns} />
